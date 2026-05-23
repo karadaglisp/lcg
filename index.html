@@ -40,12 +40,12 @@
     // (Αν το τρέχεις στην Προεπισκόπηση, θα πάρει αυτόματα τις ρυθμίσεις)
     // ==========================================
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+      apiKey: "AIzaSyCAZa7WYU9OLUo1bFpeZ7hiFgPcmnjd4BE",
+      authDomain: "lp-cg-27f67.firebaseapp.com",
+      projectId: "lp-cg-27f67",
+      storageBucket: "lp-cg-27f67.firebasestorage.app",
+      messagingSenderId: "967243282996",
+      appId: "1:967243282996:web:72a6daa331f788997c6861"
     };
 
     const app = initializeApp(firebaseConfig);
@@ -132,6 +132,7 @@
       const [gameId, setGameId] = useState('');
       const [gameState, setGameState] = useState(null);
       const [error, setError] = useState('');
+      const [authError, setAuthError] = useState('');
       const [selectedDonor, setSelectedDonor] = useState(null);
       const [selectedNeed, setSelectedNeed] = useState(null);
       const [showDiscardPrompt, setShowDiscardPrompt] = useState(false);
@@ -139,11 +140,6 @@
 
       // 1. Auth Setup
       useEffect(() => {
-        if (firebaseConfig.apiKey === "YOUR_API_KEY") {
-          setError("ΠΡΟΣΟΧΗ: Πρέπει να αντικαταστήσεις το 'YOUR_API_KEY' κ.λπ. με τα δικά σου στοιχεία Firebase στον κώδικα για να λειτουργήσει το παιχνίδι στο GitHub!");
-          return;
-        }
-
         const initAuth = async () => {
           try {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -153,7 +149,7 @@
             }
           } catch (err) {
             console.error("Auth error:", err);
-            setError("Αποτυχία σύνδεσης στο Firebase. Ελέγξτε τα API keys.");
+            setAuthError(`Αποτυχία σύνδεσης στο Firebase: ${err.message}. Βεβαιώσου ότι έχεις ενεργοποιήσει το "Anonymous Authentication" στο Firebase Console σου.`);
           }
         };
         initAuth();
@@ -473,8 +469,20 @@
       };
 
       // --- UI COMPONENTS ---
+      if (authError) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-pink-50 p-4 font-sans">
+             <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full text-center border-t-8 border-rose-500">
+                <span className="text-4xl mb-4 block">⚠️</span>
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Σφάλμα Ρυθμίσεων Firebase</h2>
+                <p className="text-gray-600 font-medium leading-relaxed">{authError}</p>
+             </div>
+          </div>
+        );
+      }
+
       if (!user) {
-        return <div className="min-h-screen flex items-center justify-center bg-pink-50 p-4">Φόρτωση...</div>;
+        return <div className="min-h-screen flex items-center justify-center bg-pink-50 p-4 font-sans">Φόρτωση...</div>;
       }
 
       if (!gameState) {
