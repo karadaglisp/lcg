@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifePulse - The Card Game</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Import Maps for React and Firebase -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+  </script>
+
+  <!-- Babel Standalone (To transpile JSX in the browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- The main React Application -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+
+    // ==========================================
+    // ⚠️ ΒΑΛΕ ΕΔΩ ΤΟ ΔΙΚΟ ΣΟΥ FIREBASE CONFIG ⚠️
+    // (Αν το τρέχεις στην Προεπισκόπηση, θα πάρει αυτόματα τις ρυθμίσεις)
+    // ==========================================
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Βοηθητική συνάρτηση για τα paths (υποστηρίζει την Προεπισκόπηση και το GitHub)
+    const getGameRef = (id) => {
+      if (typeof __app_id !== 'undefined') {
+        return doc(db, 'artifacts', __app_id, 'public', 'data', 'games', id);
+      }
+      return doc(db, 'games', id);
+    };
+
+    // --- ICONS (SVGs to avoid external dependencies) ---
+    const Copy = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>;
+    const Play = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+    const Check = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>;
+    const AlertCircle = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>;
+    const RefreshCw = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+
+    // --- GAME LOGIC CONSTANTS ---
+    const BLOOD_TYPES = ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'];
+
+    const COMPATIBILITY = {
+      'O-': ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'],
+      'O+': ['O+', 'A+', 'B+', 'AB+'],
+      'A-': ['A-', 'A+', 'AB-', 'AB+'],
+      'A+': ['A+', 'AB+'],
+      'B-': ['B-', 'B+', 'AB-', 'AB+'],
+      'B+': ['B+', 'AB+'],
+      'AB-': ['AB-', 'AB+'],
+      'AB+': ['AB+']
+    };
+
+    const TRIVIA = {
+      'O-': 'Τα άτομα με τύπο αίματος O- λέγονται συνήθως πανδότες.',
+      'O+': 'Είναι η πιο συχνή ομάδα αίματος στον κόσμο!',
+      'A-': 'Μόνο το 6% του πληθυσμού έχει Α- ομάδα αίματος.',
+      'A+': 'Περίπου 1 στους 3 ανθρώπους έχει ομάδα αίματος Α+.',
+      'B-': 'Πολύ σπάνια ομάδα, περίπου το 1.5% έχει Β-.',
+      'B+': 'Σημαντική για τη θεραπεία ατόμων με δρεπανοκυτταρική αναιμία.',
+      'AB-': 'Η πιο σπάνια ομάδα! Μόνο το 0.6% του πληθυσμού.',
+      'AB+': 'Λέγονται "πανδέκτες" γιατί μπορούν να λάβουν οποιοδήποτε αίμα.'
+    };
+
+    // --- HELPER FUNCTIONS ---
+    const generateId = () => Math.random().toString(36).substring(2, 9);
+    const shuffle = (array) => {
+      const newArr = [...array];
+      for (let i = newArr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+      }
+      return newArr;
+    };
+
+    const generateDeck = () => {
+      let deck = [];
+      BLOOD_TYPES.forEach(bt => {
+        for (let i = 0; i < 4; i++) {
+          deck.push({ id: generateId(), type: 'donor', bloodType: bt, title: 'Κάρτα Δότη' });
+          deck.push({ id: generateId(), type: 'need', bloodType: bt, title: 'Κάρτα Ανάγκης' });
+        }
+      });
+
+      for (let i = 0; i < 6; i++) {
+        deck.push({ id: generateId(), type: 'special', effect: 'draw_2', title: 'Ενίσχυση', desc: 'Τράβα 2 επιπλέον κάρτες.' });
+      }
+      for (let i = 0; i < 4; i++) {
+        deck.push({ id: generateId(), type: 'special', effect: 'skip_turn', title: 'Αδυναμία', desc: 'Ο επόμενος παίκτης χάνει τη σειρά του.' });
+      }
+      for (let i = 0; i < 2; i++) {
+        deck.push({ id: generateId(), type: 'special', effect: 'metamorphosis', title: 'Μεταμόρφωση', desc: 'Ανακάτεψε όλες τις κάρτες στα χέρια των παικτών και μοίρασέ τες ξανά.' });
+      }
+
+      return shuffle(deck);
+    };
+
+    // --- MAIN COMPONENT ---
+    function App() {
+      const [user, setUser] = useState(null);
+      const [playerName, setPlayerName] = useState('');
+      const [gameId, setGameId] = useState('');
+      const [gameState, setGameState] = useState(null);
+      const [error, setError] = useState('');
+      const [selectedDonor, setSelectedDonor] = useState(null);
+      const [selectedNeed, setSelectedNeed] = useState(null);
+      const [showDiscardPrompt, setShowDiscardPrompt] = useState(false);
+      const [copiedId, setCopiedId] = useState(false);
+
+      // 1. Auth Setup
+      useEffect(() => {
+        if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+          setError("ΠΡΟΣΟΧΗ: Πρέπει να αντικαταστήσεις το 'YOUR_API_KEY' κ.λπ. με τα δικά σου στοιχεία Firebase στον κώδικα για να λειτουργήσει το παιχνίδι στο GitHub!");
+          return;
+        }
+
+        const initAuth = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (err) {
+            console.error("Auth error:", err);
+            setError("Αποτυχία σύνδεσης στο Firebase. Ελέγξτε τα API keys.");
+          }
+        };
+        initAuth();
+
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+          setUser(u);
+          if (u) {
+            setPlayerName(`Παίκτης_${u.uid.substring(0, 4)}`);
+          }
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // 2. Game State Listener
+      useEffect(() => {
+        if (!user || !gameId) return;
+
+        const gameRef = getGameRef(gameId);
+        const unsubscribe = onSnapshot(gameRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setGameState(docSnap.data());
+          } else {
+            setGameState(null);
+            setError("Το παιχνίδι δεν βρέθηκε.");
+          }
+        }, (err) => {
+          console.error("Listen error:", err);
+        });
+
+        return () => unsubscribe();
+      }, [user, gameId]);
+
+      // --- ACTIONS ---
+      const createGame = async () => {
+        if (!user) return;
+        const newId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const gameRef = getGameRef(newId);
+        
+        const initialGameState = {
+          status: 'lobby',
+          players: [{
+            id: user.uid,
+            name: playerName,
+            hand: [],
+            pairs: [],
+            isHost: true
+          }],
+          deck: [],
+          discardPile: [],
+          turn: 0,
+          turnPhase: 'draw', 
+          hasPlayedPairThisTurn: false,
+          winner: null,
+          logs: ['Το δωμάτιο δημιουργήθηκε.']
+        };
+
+        await setDoc(gameRef, initialGameState);
+        setGameId(newId);
+      };
+
+      const joinGame = async (e) => {
+        e.preventDefault();
+        if (!user || !gameId.trim()) return;
+        const id = gameId.trim().toUpperCase();
+        
+        const gameRef = getGameRef(id);
+        import('firebase/firestore').then(({ getDoc }) => {
+          getDoc(gameRef).then((docSnap) => {
+             if (docSnap.exists()) {
+               const data = docSnap.data();
+               if (data.status !== 'lobby') {
+                 setError("Το παιχνίδι έχει ήδη ξεκινήσει.");
+                 return;
+               }
+               if (!data.players.find(p => p.id === user.uid)) {
+                 data.players.push({
+                   id: user.uid,
+                   name: playerName,
+                   hand: [],
+                   pairs: [],
+                   isHost: false
+                 });
+                 data.logs.unshift(`${playerName} μπήκε στο παιχνίδι.`);
+                 updateDoc(gameRef, { players: data.players, logs: data.logs.slice(0, 50) });
+               }
+               setGameId(id);
+             } else {
+               setError("Το ID δεν υπάρχει.");
+             }
+          });
+        });
+      };
+
+      const startGame = async () => {
+        if (!user || !gameState) return;
+        
+        const deck = generateDeck();
+        const newPlayers = [...gameState.players];
+        
+        newPlayers.forEach(p => {
+          p.hand = deck.splice(0, 7);
+          p.pairs = [];
+        });
+
+        const gameRef = getGameRef(gameId);
+        await updateDoc(gameRef, {
+          status: 'playing',
+          deck: deck,
+          players: newPlayers,
+          turn: 0,
+          turnPhase: 'draw',
+          hasPlayedPairThisTurn: false,
+          logs: ['Το παιχνίδι ξεκίνησε! Μοιράστηκαν 7 κάρτες.']
+        });
+      };
+
+      const updateGameState = async (updates) => {
+        const gameRef = getGameRef(gameId);
+        await updateDoc(gameRef, updates);
+      };
+
+      const drawStartTurnCard = () => {
+        if (gameState.turnPhase !== 'draw') return;
+        let deck = [...gameState.deck];
+        let discard = [...gameState.discardPile];
+        let players = [...gameState.players];
+        let logs = [...gameState.logs];
+        
+        const pIdx = gameState.turn;
+        const player = players[pIdx];
+
+        if (deck.length === 0) {
+          deck = shuffle(discard);
+          discard = [];
+          logs.unshift('Η τράπουλα ανακατεύτηκε από τα σκάρτα.');
+        }
+
+        if (deck.length > 0) {
+          player.hand.push(deck.pop());
+          logs.unshift(`${player.name} τράβηξε κάρτα έναρξης γύρου.`);
+        }
+
+        updateGameState({
+          deck,
+          discardPile: discard,
+          players,
+          turnPhase: 'main',
+          hasPlayedPairThisTurn: false,
+          logs: logs.slice(0, 50)
+        });
+      };
+
+      const attemptPair = () => {
+        if (!selectedDonor || !selectedNeed || gameState.hasPlayedPairThisTurn) return;
+
+        const compatible = COMPATIBILITY[selectedDonor.bloodType].includes(selectedNeed.bloodType);
+        if (!compatible) {
+          alert("Αυτές οι ομάδες αίματος δεν είναι συμβατές!");
+          setSelectedDonor(null);
+          setSelectedNeed(null);
+          return;
+        }
+
+        let players = [...gameState.players];
+        let logs = [...gameState.logs];
+        const pIdx = gameState.turn;
+        const player = players[pIdx];
+
+        player.hand = player.hand.filter(c => c.id !== selectedDonor.id && c.id !== selectedNeed.id);
+        player.pairs.push({ donor: selectedDonor, need: selectedNeed });
+        logs.unshift(`${player.name} δημιούργησε ένα συμβατό ζευγάρι (${selectedDonor.bloodType} -> ${selectedNeed.bloodType})!`);
+
+        let status = gameState.status;
+        let winner = gameState.winner;
+
+        if (player.pairs.length >= 4) {
+          status = 'finished';
+          winner = player.name;
+          logs.unshift(`🏆 ${player.name} ΚΕΡΔΙΣΕ ΤΟ ΠΑΙΧΝΙΔΙ!`);
+        }
+
+        updateGameState({
+          players,
+          hasPlayedPairThisTurn: true,
+          logs: logs.slice(0, 50),
+          status,
+          winner
+        });
+
+        setSelectedDonor(null);
+        setSelectedNeed(null);
+      };
+
+      const playSpecialCard = (card) => {
+        let deck = [...gameState.deck];
+        let discard = [...gameState.discardPile];
+        let players = [...gameState.players];
+        let logs = [...gameState.logs];
+        let turn = gameState.turn;
+        
+        const pIdx = turn;
+        const player = players[pIdx];
+
+        player.hand = player.hand.filter(c => c.id !== card.id);
+        discard.push(card);
+
+        logs.unshift(`${player.name} έπαιξε την κάρτα '${card.title}'.`);
+
+        if (card.effect === 'draw_2') {
+          for(let i=0; i<2; i++) {
+            if(deck.length === 0) {
+              deck = shuffle(discard);
+              discard = [];
+            }
+            if(deck.length > 0) player.hand.push(deck.pop());
+          }
+        } 
+        else if (card.effect === 'skip_turn') {
+          turn = (turn + 1) % players.length; 
+          logs.unshift(`Η σειρά του επόμενου παίκτη χάθηκε!`);
+        }
+        else if (card.effect === 'metamorphosis') {
+          let allCards = [];
+          players.forEach(p => {
+            allCards.push(...p.hand);
+            p.hand = [];
+          });
+          allCards = shuffle(allCards);
+          
+          let dealIdx = 0;
+          while (allCards.length > 0) {
+             players[dealIdx % players.length].hand.push(allCards.pop());
+             dealIdx++;
+          }
+          logs.unshift(`Μεταμόρφωση! Όλες οι κάρτες ανακατεύτηκαν και ξαναμοιράστηκαν.`);
+        }
+
+        updateGameState({
+          deck,
+          discardPile: discard,
+          players,
+          turn,
+          logs: logs.slice(0, 50)
+        });
+      };
+
+      const endTurnRequest = () => {
+        const player = gameState.players[gameState.turn];
+        if (player.hand.length > 7) {
+          setShowDiscardPrompt(true);
+          updateGameState({ turnPhase: 'discard' });
+        } else {
+          finalizeEndTurn();
+        }
+      };
+
+      const finalizeEndTurn = () => {
+        const nextTurn = (gameState.turn + 1) % gameState.players.length;
+        updateGameState({
+          turn: nextTurn,
+          turnPhase: 'draw',
+          hasPlayedPairThisTurn: false,
+          logs: [`Είναι η σειρά του/της ${gameState.players[nextTurn].name}.`, ...gameState.logs].slice(0, 50)
+        });
+        setShowDiscardPrompt(false);
+      };
+
+      const discardCard = (cardId) => {
+        let players = [...gameState.players];
+        let discard = [...gameState.discardPile];
+        const player = players[gameState.turn];
+
+        const cardToDiscard = player.hand.find(c => c.id === cardId);
+        player.hand = player.hand.filter(c => c.id !== cardId);
+        discard.push(cardToDiscard);
+
+        if (player.hand.length <= 7) {
+          const nextTurn = (gameState.turn + 1) % players.length;
+          updateGameState({
+            players,
+            discardPile: discard,
+            turn: nextTurn,
+            turnPhase: 'draw',
+            hasPlayedPairThisTurn: false,
+            logs: [`${player.name} πέταξε μια κάρτα. Είναι η σειρά του/της ${players[nextTurn].name}.`, ...gameState.logs].slice(0, 50)
+          });
+          setShowDiscardPrompt(false);
+        } else {
+          updateGameState({ players, discardPile: discard });
+        }
+      };
+
+      const leaveGame = () => {
+        setGameId('');
+        setGameState(null);
+      };
+
+      const copyRoomCode = () => {
+        try {
+          const textArea = document.createElement("textarea");
+          textArea.value = gameId;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-9999px";
+          textArea.style.opacity = "0";
+          document.body.appendChild(textArea);
+          
+          textArea.focus();
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          
+          setCopiedId(true);
+          setTimeout(() => setCopiedId(false), 2000);
+        } catch (err) {
+          console.error("Copy failed", err);
+        }
+      };
+
+      // --- UI COMPONENTS ---
+      if (!user) {
+        return <div className="min-h-screen flex items-center justify-center bg-pink-50 p-4">Φόρτωση...</div>;
+      }
+
+      if (!gameState) {
+        return (
+          <div className="min-h-screen bg-pink-50 flex flex-col items-center justify-center p-4 font-sans text-gray-800">
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden">
+              <div className="bg-rose-600 p-6 text-center">
+                <h1 className="text-4xl font-bold text-white mb-2 flex items-center justify-center gap-2">
+                  <span className="text-red-200">🩸</span> LifePulse
+                </h1>
+                <p className="text-red-100">The Card Game (Online)</p>
+              </div>
+              
+              <div className="p-8 space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Το Όνομά σου</label>
+                  <input 
+                    type="text" 
+                    value={playerName} 
+                    onChange={e => setPlayerName(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <button 
+                    onClick={createGame}
+                    className="w-full bg-rose-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-rose-700 transition"
+                  >
+                    Δημιουργία Νέου Παιχνιδιού
+                  </button>
+                  
+                  <div className="relative flex py-2 items-center">
+                    <div className="flex-grow border-t border-gray-300"></div>
+                    <span className="flex-shrink-0 mx-4 text-gray-400 text-sm">ή</span>
+                    <div className="flex-grow border-t border-gray-300"></div>
+                  </div>
+
+                  <form onSubmit={joinGame} className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Κωδικός (π.χ. ABCD)" 
+                      value={gameId}
+                      onChange={e => setGameId(e.target.value.toUpperCase())}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-xl uppercase focus:ring-2 focus:ring-rose-500 outline-none"
+                    />
+                    <button type="submit" className="bg-gray-800 text-white font-bold py-2 px-6 rounded-xl hover:bg-gray-900 transition">
+                      Είσοδος
+                    </button>
+                  </form>
+                </div>
+                
+                {error && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg">{error}</p>}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (gameState.status === 'lobby') {
+        const isHost = gameState.players.id === user.uid;
+        return (
+          <div className="min-h-screen bg-pink-50 flex flex-col items-center justify-center p-4 font-sans text-gray-800">
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden p-8 text-center space-y-6">
+              <h2 className="text-2xl font-bold">Αίθουσα Αναμονής</h2>
+              
+              <div className="bg-rose-100 p-4 rounded-2xl flex flex-col items-center">
+                <span className="text-sm text-rose-800 mb-1">Κωδικός Πρόσκλησης</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl font-mono font-bold tracking-wider text-rose-600">{gameId}</span>
+                  <button onClick={copyRoomCode} className="p-2 bg-white rounded-full text-rose-600 shadow hover:bg-rose-50 flex items-center gap-2 transition-all">
+                    {copiedId ? (
+                      <>
+                        <Check size={18} className="text-green-600" />
+                        <span className="text-sm font-bold text-green-600">Αντιγράφηκε!</span>
+                      </>
+                    ) : (
+                      <Copy size={18} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-left bg-gray-50 rounded-2xl p-4">
+                <h3 className="font-semibold mb-3 border-b pb-2">Παίκτες ({gameState.players.length})</h3>
+                <ul className="space-y-2">
+                  {gameState.players.map((p, i) => (
+                    <li key={p.id} className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${i === 0 ? 'bg-amber-500' : 'bg-gray-400'}`}>
+                        {p.name.charAt(0)}
+                      </div>
+                      <span>{p.name} {p.id === user.uid && '(Εσύ)'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {isHost ? (
+                <button onClick={startGame} className="w-full bg-rose-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-rose-700 transition flex items-center justify-center gap-2">
+                  <Play size={20} /> Έναρξη Παιχνιδιού
+                </button>
+              ) : (
+                <p className="text-gray-500 italic">Αναμονή για τον οικοδεσπότη να ξεκινήσει...</p>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      const myPlayerIndex = gameState.players.findIndex(p => p.id === user.uid);
+      const myPlayer = gameState.players[myPlayerIndex];
+      const isMyTurn = gameState.turn === myPlayerIndex;
+      
+      const renderCard = (card, context = 'hand') => {
+        const isDonor = card.type === 'donor';
+        const isNeed = card.type === 'need';
+        const isSpecial = card.type === 'special';
+        
+        let isSelected = false;
+        if (context === 'hand') {
+          isSelected = (selectedDonor?.id === card.id) || (selectedNeed?.id === card.id);
+        }
+
+        const handleCardClick = () => {
+          if (!isMyTurn || gameState.turnPhase !== 'main' || context !== 'hand') return;
+          
+          if (isDonor) {
+            setSelectedDonor(selectedDonor?.id === card.id ? null : card);
+          } else if (isNeed) {
+            setSelectedNeed(selectedNeed?.id === card.id ? null : card);
+          } else if (isSpecial) {
+            if(window.confirm(`Θέλεις να παίξεις την κάρτα '${card.title}';`)) {
+              playSpecialCard(card);
+            }
+          }
+        };
+
+        const handleDiscardClick = () => {
+          discardCard(card.id);
+        };
+
+        if (showDiscardPrompt && context === 'hand') {
+          return (
+            <div key={card.id} className="relative cursor-pointer transform hover:-translate-y-2 transition duration-200" onClick={handleDiscardClick}>
+              <div className="absolute inset-0 bg-red-500 opacity-0 hover:opacity-20 rounded-xl z-10 transition pointer-events-none"></div>
+              {CardFace(card)}
+              <div className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-1 shadow-lg pointer-events-none z-20">
+                <Check size={16} />
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div 
+            key={card.id} 
+            onClick={handleCardClick}
+            className={`relative transition-all duration-300 ${context === 'hand' && isMyTurn && gameState.turnPhase === 'main' ? 'cursor-pointer hover:-translate-y-4' : ''} ${isSelected ? '-translate-y-4 shadow-2xl scale-105' : 'shadow-md'} ${context === 'pair' ? 'scale-90 shadow-sm' : ''}`}
+          >
+            {CardFace(card, isSelected)}
+          </div>
+        );
+      };
+
+      const CardFace = (card, isSelected = false) => {
+        if (card.type === 'donor') {
+          return (
+            <div className={`w-48 h-64 bg-[#fbe7e7] rounded-xl border-4 ${isSelected ? 'border-rose-500' : 'border-[#d4c3c3]'} p-2 flex flex-col relative overflow-hidden select-none`}>
+               <div className="flex h-6 mb-2 border border-gray-300 rounded overflow-hidden text-[8px] font-bold text-center leading-6">
+                 {BLOOD_TYPES.map(bt => (
+                   <div key={bt} className={`flex-1 border-r last:border-0 ${COMPATIBILITY[card.bloodType].includes(bt) ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                     {bt}
+                   </div>
+                 ))}
+               </div>
+               <h4 className="text-center text-[#5c1c34] font-bold mb-2">Κάρτα Δότη</h4>
+               <div className="flex-1 flex items-center justify-center">
+                 <div className="w-28 h-28 bg-[#8a3356] rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-inner">
+                   {card.bloodType}
+                 </div>
+               </div>
+               <p className="text-[10px] text-center text-[#5c1c34] mt-2 leading-tight px-1 font-medium">
+                 {TRIVIA[card.bloodType] || 'Κάθε σταγόνα μετράει.'}
+               </p>
+               <div className="absolute top-1/2 -right-1 -translate-y-1/2 w-4 h-8 bg-rose-500 border border-[#8a3356] rounded-l-md opacity-80"></div>
+            </div>
+          );
+        }
+        
+        if (card.type === 'need') {
+          return (
+             <div className={`w-48 h-64 bg-gradient-to-b from-[#d1f1f5] to-[#a3c9cd] rounded-xl border-4 ${isSelected ? 'border-blue-500' : 'border-[#8eb1b5]'} p-3 flex flex-col relative overflow-hidden select-none`}>
+               <h4 className="text-center text-[#2a4e57] font-bold text-lg mb-4 mt-2">Κάρτα Ανάγκης</h4>
+               <div className="flex-1 flex items-center justify-center relative">
+                 <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="absolute w-40 h-40 text-[#548b99] opacity-80 drop-shadow-md">
+                    <path fill="currentColor" d="M45,-75.4C58.8,-68.8,71,-57,78.2,-42.6C85.4,-28.2,87.6,-11.2,85.2,5.2C82.8,21.5,75.8,37.3,64.8,49.5C53.8,61.8,38.8,70.5,22.2,76.5C5.6,82.6,-12.6,86,-28.4,81.4C-44.2,76.8,-57.6,64.1,-68.4,50C-79.2,35.8,-87.3,20.2,-87.9,4.4C-88.5,-11.5,-81.6,-27.6,-70.6,-40.1C-59.6,-52.6,-44.6,-61.5,-30.4,-67.9C-16.2,-74.3,-2.8,-78.2,11.3,-79.1C25.4,-80,31.2,-82,45,-75.4Z" transform="translate(100 100)" />
+                 </svg>
+                 <div className="relative text-[#f9f4d4] text-5xl font-extrabold z-10 drop-shadow-md">
+                   {card.bloodType}
+                 </div>
+               </div>
+               <p className="text-xs text-center text-[#2a4e57] mt-4 font-semibold px-2">
+                  Αναζητείται αίμα {card.bloodType}.
+               </p>
+               <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-4 h-8 bg-blue-500 border border-[#2a4e57] rounded-r-md opacity-80"></div>
+            </div>
+          );
+        }
+
+        return (
+           <div className={`w-48 h-64 bg-[#f8d0dc] rounded-xl border-4 ${isSelected ? 'border-purple-500' : 'border-[#d4a0b2]'} p-3 flex flex-col items-center relative overflow-hidden select-none`}>
+              <div className="absolute inset-2 border-2 border-pink-400 rounded-lg pointer-events-none"></div>
+              <h4 className="text-center text-[#5c1c34] font-bold text-sm mt-1 z-10 flex items-center gap-1">
+                ✨ {card.title} ✨
+              </h4>
+              <div className="flex-1 flex flex-col justify-center items-center w-full z-10">
+                <div className="w-full h-28 bg-[#a82963] rounded-2xl mb-3 flex items-center justify-center text-white text-opacity-80">
+                   {card.effect === 'metamorphosis' ? '🐱🪞' : card.effect === 'skip_turn' ? '🛑' : '🃏🃏'}
+                </div>
+                <p className="text-[10px] text-center text-white bg-[#d14f85] font-medium p-2 rounded w-full">
+                  {card.desc}
+                </p>
+              </div>
+           </div>
+        );
+      };
+
+      return (
+        <div className="min-h-screen bg-[#f3f4f6] text-gray-800 flex flex-col font-sans overflow-hidden">
+          <header className="bg-white shadow-sm px-6 py-3 flex justify-between items-center z-10">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-rose-600 rounded-full flex items-center justify-center text-white font-bold">🩸</div>
+              <h1 className="font-bold text-xl text-rose-800 hidden sm:block">LifePulse</h1>
+              <span className="text-xs text-gray-500 ml-2 bg-gray-100 px-2 py-1 rounded">ID: {gameId}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-full font-bold">
+               {isMyTurn ? (
+                 <span className="text-rose-600 animate-pulse">Είναι η σειρά σου!</span>
+               ) : (
+                 <span className="text-gray-500">Σειρά: {gameState.players[gameState.turn].name}</span>
+               )}
+            </div>
+            <button onClick={leaveGame} className="text-sm text-gray-500 hover:text-red-500 transition">Αποχώρηση</button>
+          </header>
+
+          <main className="flex-1 flex flex-col md:flex-row relative">
+            <aside className="w-full md:w-64 bg-gray-50 border-r border-gray-200 flex flex-col shadow-inner z-10 hidden md:flex">
+               <div className="p-4 border-b">
+                 <h3 className="font-bold text-gray-700 mb-3">Αντίπαλοι</h3>
+                 <ul className="space-y-3">
+                   {gameState.players.map((p, i) => {
+                     if (p.id === user.uid) return null;
+                     const isActive = gameState.turn === i;
+                     return (
+                       <li key={p.id} className={`p-2 rounded-lg border-2 ${isActive ? 'border-rose-400 bg-rose-50' : 'border-transparent bg-white'} shadow-sm flex flex-col`}>
+                          <div className="flex justify-between items-center">
+                            <span className="font-semibold text-sm truncate">{p.name}</span>
+                            {isActive && <div className="w-2 h-2 rounded-full bg-rose-500 animate-bounce"></div>}
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>🃏 {p.hand.length} Κάρτες</span>
+                            <span>🩸 {p.pairs.length}/4 Ζευγάρια</span>
+                          </div>
+                       </li>
+                     )
+                   })}
+                 </ul>
+               </div>
+               <div className="flex-1 p-4 overflow-y-auto flex flex-col">
+                 <h3 className="font-bold text-gray-700 mb-2 sticky top-0 bg-gray-50">Ιστορικό</h3>
+                 <div className="space-y-2 text-xs text-gray-600 flex-1">
+                   {gameState.logs.map((log, i) => (
+                     <div key={i} className="pb-1 border-b border-gray-100 last:border-0">{log}</div>
+                   ))}
+                 </div>
+               </div>
+            </aside>
+
+            <div className="flex-1 flex flex-col relative bg-[#fbf6f6]">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-8 z-0 opacity-80 pointer-events-none hidden lg:flex">
+                 <div className="w-32 h-44 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center flex-col text-gray-400 bg-white/50">
+                   <RefreshCw size={24} className="mb-2" />
+                   <span className="font-bold text-sm">Τράπουλα</span>
+                   <span className="text-xs">{gameState.deck.length}</span>
+                 </div>
+                 <div className="w-32 h-44 border-2 border-gray-300 rounded-xl flex items-center justify-center flex-col text-gray-400 bg-gray-100/50">
+                   <span className="font-bold text-sm">Σκάρτα</span>
+                   <span className="text-xs">{gameState.discardPile.length}</span>
+                 </div>
+              </div>
+
+              <div className="h-48 bg-white/40 p-4 overflow-x-auto flex gap-8 items-center justify-start z-10 border-b border-gray-200">
+                 {gameState.players.map(p => {
+                   if(p.id === user.uid || p.pairs.length === 0) return null;
+                   return (
+                     <div key={p.id} className="flex flex-col items-center min-w-max">
+                       <span className="text-xs font-bold text-gray-500 mb-2">{p.name}'s Ζευγάρια ({p.pairs.length}/4)</span>
+                       <div className="flex gap-4">
+                         {p.pairs.map((pair, idx) => (
+                           <div key={idx} className="flex -space-x-12 scale-50 origin-top opacity-80">
+                             {renderCard(pair.donor, 'pair')}
+                             <div className="z-10">{renderCard(pair.need, 'pair')}</div>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 })}
+              </div>
+
+              <div className="flex-1 p-6 flex flex-col items-center justify-end z-10">
+                 <div className="w-full max-w-4xl flex items-end justify-between mb-8">
+                   <div className="flex gap-6 overflow-x-auto pb-4 w-full justify-center">
+                      {myPlayer.pairs.length === 0 ? (
+                        <div className="h-32 flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 rounded-xl px-12">
+                          Τα συμβατά σου ζευγάρια θα εμφανιστούν εδώ. (Στόχος: 4)
+                        </div>
+                      ) : (
+                        myPlayer.pairs.map((pair, idx) => (
+                          <div key={idx} className="flex -space-x-8 transform transition hover:scale-105">
+                            {renderCard(pair.donor, 'pair')}
+                            <div className="z-10">{renderCard(pair.need, 'pair')}</div>
+                          </div>
+                        ))
+                      )}
+                   </div>
+                 </div>
+              </div>
+
+              <div className={`h-80 bg-gray-100 border-t border-gray-300 p-6 relative transition-colors ${isMyTurn ? 'bg-indigo-50/30' : ''}`}>
+                 <div className="absolute -top-14 left-0 w-full flex justify-center gap-4 px-4 pointer-events-none z-20">
+                   {isMyTurn && gameState.turnPhase === 'draw' && (
+                     <button onClick={drawStartTurnCard} className="pointer-events-auto bg-amber-500 text-white px-8 py-3 rounded-full font-bold shadow-xl hover:bg-amber-600 transition transform hover:-translate-y-1 animate-bounce flex items-center gap-2">
+                       Τράβα Κάρτα Έναρξης <RefreshCw size={18}/>
+                     </button>
+                   )}
+                   {isMyTurn && gameState.turnPhase === 'main' && selectedDonor && selectedNeed && !gameState.hasPlayedPairThisTurn && (
+                     <button onClick={attemptPair} className="pointer-events-auto bg-green-500 text-white px-8 py-3 rounded-full font-bold shadow-xl hover:bg-green-600 transition transform hover:-translate-y-1 flex items-center gap-2">
+                       Δημιουργία Ζευγαριού <Check size={18}/>
+                     </button>
+                   )}
+                   {isMyTurn && gameState.turnPhase === 'main' && (
+                      <button onClick={endTurnRequest} className="pointer-events-auto bg-gray-800 text-white px-8 py-3 rounded-full font-bold shadow-xl hover:bg-gray-900 transition flex items-center gap-2 ml-auto md:mr-10">
+                        Τέλος Γύρου
+                      </button>
+                   )}
+                   {showDiscardPrompt && (
+                     <div className="pointer-events-auto bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 animate-pulse">
+                       <AlertCircle size={18}/> Έχεις πάνω από 7 κάρτες. Επίλεξε κάρτες να πετάξεις!
+                     </div>
+                   )}
+                 </div>
+
+                 <div className="flex justify-center gap-[-2rem] md:gap-2 overflow-x-auto pb-8 pt-4 px-4">
+                    {myPlayer.hand.map((card, idx) => (
+                      <div key={card.id} className="shrink-0" style={{ marginLeft: idx === 0 ? '0' : '-3rem', zIndex: idx }}>
+                        {renderCard(card, 'hand')}
+                      </div>
+                    ))}
+                    {myPlayer.hand.length === 0 && (
+                      <div className="text-gray-400 italic mt-10">Το χέρι σου είναι άδειο.</div>
+                    )}
+                 </div>
+              </div>
+            </div>
+          </main>
+
+          {gameState.status === 'finished' && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+               <div className="bg-white rounded-3xl p-10 max-w-lg w-full text-center space-y-6 transform animate-bounce-in">
+                  <div className="text-6xl">🏆</div>
+                  <h2 className="text-4xl font-extrabold text-gray-800">ΤΕΛΟΣ ΠΑΙΧΝΙΔΙΟΥ!</h2>
+                  <p className="text-xl text-gray-600">Νικητής: <span className="text-rose-600 font-bold">{gameState.winner}</span></p>
+                  
+                  <div className="bg-pink-50 p-4 rounded-xl text-sm text-pink-800 mt-6">
+                    Ευχαριστούμε που παίξατε το <b>LifePulse</b>! Η εθελοντική αιμοδοσία σώζει ζωές πραγματικά. <br/> Ενημερώσου σήμερα για τις ανάγκες στην περιοχή σου!
+                  </div>
+
+                  <button onClick={() => window.location.reload()} className="w-full bg-rose-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-rose-700 transition mt-4">
+                    Επιστροφή στο Αρχικό Μενού
+                  </button>
+               </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
