@@ -543,7 +543,7 @@
       }
 
       if (gameState.status === 'lobby') {
-        const isHost = gameState.players.id === user.uid;
+        const isHost = gameState.players.find(p => p.id === user.uid)?.isHost;
         return (
           <div className="min-h-screen bg-pink-50 flex flex-col items-center justify-center p-4 font-sans text-gray-800">
             <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden p-8 text-center space-y-6">
