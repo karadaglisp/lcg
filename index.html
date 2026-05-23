@@ -51,7 +51,7 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    // Βοηθητική συνάρτηση για τα paths (υποστηρίζει την Προεπισκόπηση και το GitHub)
+    // Βοηθητική συνάρτηση για τα paths
     const getGameRef = (id) => {
       if (typeof __app_id !== 'undefined') {
         return doc(db, 'artifacts', __app_id, 'public', 'data', 'games', id);
@@ -59,7 +59,7 @@
       return doc(db, 'games', id);
     };
 
-    // --- ICONS (SVGs to avoid external dependencies) ---
+    // --- ICONS (SVGs) ---
     const Copy = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>;
     const Play = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="5 3 19 12 5 21 5 3"/></svg>;
     const Check = ({ size=24, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>;
@@ -194,7 +194,7 @@
             name: playerName,
             hand: [],
             pairs: [],
-            isHost: true // Το κρατάμε, αν και πλέον ελέγχουμε και μέσω index
+            isHost: true 
           }],
           deck: [],
           discardPile: [],
@@ -545,8 +545,8 @@
       }
 
       if (gameState.status === 'lobby') {
-        // Διόρθωση: Ο πρώτος παίκτης που μπήκε στο array είναι ΠΑΝΤΑ ο οικοδεσπότης. Το είναι απαραίτητο.
-        const isHost = gameState.players?.id === user.uid;
+        // Η διόρθωση: Σιγουρευόμαστε ότι ο πίνακας υπάρχει και ελέγχουμε το id του πρώτου παίκτη.
+        const isHost = gameState.players && gameState.players.length > 0 && gameState.players.id === user.uid;
         
         return (
           <div className="min-h-screen bg-pink-50 flex flex-col items-center justify-center p-4 font-sans text-gray-800">
@@ -596,7 +596,19 @@
         );
       }
 
+      // Δικλείδα ασφαλείας: Αν το παιχνίδι ξεκινήσει αλλά ο παίκτης δεν βρεθεί για οποιονδήποτε λόγο
       const myPlayerIndex = gameState.players.findIndex(p => p.id === user.uid);
+      if (myPlayerIndex === -1) {
+         return (
+           <div className="min-h-screen flex flex-col items-center justify-center bg-pink-50 p-4 text-center">
+             <div className="bg-white p-6 rounded-xl shadow-lg">
+               <p className="text-red-500 mb-4 font-bold">Προέκυψε σφάλμα με τη σύνδεσή σου στο δωμάτιο.</p>
+               <button onClick={leaveGame} className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-900">Επιστροφή στο Μενού</button>
+             </div>
+           </div>
+         );
+      }
+
       const myPlayer = gameState.players[myPlayerIndex];
       const isMyTurn = gameState.turn === myPlayerIndex;
       
@@ -726,7 +738,7 @@
                {isMyTurn ? (
                  <span className="text-rose-600 animate-pulse">Είναι η σειρά σου!</span>
                ) : (
-                 <span className="text-gray-500">Σειρά: {gameState.players[gameState.turn].name}</span>
+                 <span className="text-gray-500">Σειρά: {gameState.players[gameState.turn]?.name}</span>
                )}
             </div>
             <button onClick={leaveGame} className="text-sm text-gray-500 hover:text-red-500 transition">Αποχώρηση</button>
@@ -749,8 +761,8 @@
                             {isActive && <div className="w-2 h-2 rounded-full bg-rose-500 animate-bounce"></div>}
                           </div>
                           <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>🃏 {p.hand.length} Κάρτες</span>
-                            <span>🩸 {p.pairs.length}/4 Ζευγάρια</span>
+                            <span>🃏 {p.hand?.length || 0} Κάρτες</span>
+                            <span>🩸 {p.pairs?.length || 0}/4 Ζευγάρια</span>
                           </div>
                        </li>
                      )
@@ -788,8 +800,8 @@
                             {isActive && <div className="w-2 h-2 rounded-full bg-rose-500 animate-bounce"></div>}
                           </div>
                           <div className="flex justify-between text-[10px] text-gray-600 font-medium">
-                            <span>🃏 {p.hand.length}</span>
-                            <span>🩸 {p.pairs.length}/4</span>
+                            <span>🃏 {p.hand?.length || 0}</span>
+                            <span>🩸 {p.pairs?.length || 0}/4</span>
                           </div>
                         </div>
                       );
@@ -813,7 +825,7 @@
               {/* Ζευγάρια Αντιπάλων */}
               <div className="h-40 md:h-48 bg-white/40 p-4 overflow-x-auto flex gap-8 items-center justify-start z-10 border-b border-gray-200 shrink-0">
                  {gameState.players.map(p => {
-                   if(p.id === user.uid || p.pairs.length === 0) return null;
+                   if(p.id === user.uid || !p.pairs || p.pairs.length === 0) return null;
                    return (
                      <div key={p.id} className="flex flex-col items-center min-w-max">
                        <span className="text-xs font-bold text-gray-500 mb-2">{p.name}'s Ζευγάρια ({p.pairs.length}/4)</span>
@@ -829,7 +841,7 @@
                    );
                  })}
                  {/* Empty state when no one has pairs */}
-                 {gameState.players.every(p => p.id === user.uid || p.pairs.length === 0) && (
+                 {gameState.players.every(p => p.id === user.uid || !p.pairs || p.pairs.length === 0) && (
                    <div className="w-full text-center text-xs text-gray-400 italic">Όταν οι αντίπαλοι φτιάξουν ζευγάρια, θα εμφανιστούν εδώ.</div>
                  )}
               </div>
@@ -838,7 +850,7 @@
               <div className="flex-1 p-4 md:p-6 flex flex-col items-center justify-end z-10 overflow-y-auto">
                  <div className="w-full max-w-4xl flex items-end justify-between md:mb-8">
                    <div className="flex gap-6 overflow-x-auto pb-4 w-full justify-center">
-                      {myPlayer.pairs.length === 0 ? (
+                      {!myPlayer.pairs || myPlayer.pairs.length === 0 ? (
                         <div className="h-24 md:h-32 flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 rounded-xl px-12 text-sm text-center">
                           Τα συμβατά σου ζευγάρια θα εμφανιστούν εδώ. (Στόχος: 4)
                         </div>
@@ -881,13 +893,14 @@
                  </div>
 
                  <div className="flex justify-center gap-[-2rem] md:gap-2 overflow-x-auto pb-8 pt-4 px-4 h-full items-end">
-                    {myPlayer.hand.map((card, idx) => (
-                      <div key={card.id} className="shrink-0 transform scale-90 md:scale-100 origin-bottom" style={{ marginLeft: idx === 0 ? '0' : '-3rem', zIndex: idx }}>
-                        {renderCard(card, 'hand')}
-                      </div>
-                    ))}
-                    {myPlayer.hand.length === 0 && (
+                    {(!myPlayer.hand || myPlayer.hand.length === 0) ? (
                       <div className="text-gray-400 italic mt-10">Το χέρι σου είναι άδειο.</div>
+                    ) : (
+                      myPlayer.hand.map((card, idx) => (
+                        <div key={card.id} className="shrink-0 transform scale-90 md:scale-100 origin-bottom" style={{ marginLeft: idx === 0 ? '0' : '-3rem', zIndex: idx }}>
+                          {renderCard(card, 'hand')}
+                        </div>
+                      ))
                     )}
                  </div>
               </div>
