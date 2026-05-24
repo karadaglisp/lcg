@@ -545,8 +545,9 @@
       }
 
       if (gameState.status === 'lobby') {
-        // Η διόρθωση: Σιγουρευόμαστε ότι ο πίνακας υπάρχει και ελέγχουμε το id του πρώτου παίκτη.
-        const isHost = gameState.players && gameState.players.length > 0 && gameState.players.id === user.uid;
+        // Η διόρθωση: Χρησιμοποιούμε το flag isHost που αποθηκεύσαμε κατά τη δημιουργία/είσοδο.
+        const currentPlayer = gameState.players?.find(p => p.id === user?.uid);
+        const isHost = currentPlayer ? currentPlayer.isHost : false;
         
         return (
           <div className="min-h-screen bg-pink-50 flex flex-col items-center justify-center p-4 font-sans text-gray-800">
@@ -578,7 +579,7 @@
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${i === 0 ? 'bg-amber-500' : 'bg-gray-400'}`}>
                         {p.name.charAt(0)}
                       </div>
-                      <span>{p.name} {p.id === user.uid && '(Εσύ)'} {i === 0 && ' (Οικοδεσπότης)'}</span>
+                      <span>{p.name} {p.id === user.uid && '(Εσύ)'} {p.isHost && ' (Οικοδεσπότης)'}</span>
                     </li>
                   ))}
                 </ul>
