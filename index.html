@@ -124,6 +124,16 @@
       return shuffle(deck);
     };
 
+    // Νέα, απολύτως ασφαλής συνάρτηση αντιγραφής δεδομένων (Deep Copy)
+    // για να μην μπερδεύεται το Firebase.
+    const clonePlayers = (players) => {
+      return players.map(p => ({
+        ...p,
+        hand: p.hand ? [...p.hand] : [],
+        pairs: p.pairs ? [...p.pairs] : []
+      }));
+    };
+
     // --- MAIN COMPONENT ---
     function App() {
       const [user, setUser] = useState(null);
@@ -191,7 +201,7 @@
           status: 'lobby',
           players: [{
             id: user.uid,
-            name: playerName,
+            name: playerName || "Οικοδεσπότης",
             hand: [],
             pairs: [],
             isHost: true 
@@ -224,16 +234,20 @@
                setError("Το παιχνίδι έχει ήδη ξεκινήσει.");
                return;
              }
+             
+             // Δημιουργούμε έναν ολοκαίνουριο πίνακα (New Array Reference)
              if (!data.players.find(p => p.id === user.uid)) {
-               data.players.push({
+               const newPlayer = {
                  id: user.uid,
-                 name: playerName,
+                 name: playerName || "Άγνωστος",
                  hand: [],
                  pairs: [],
                  isHost: false
-               });
-               data.logs.unshift(`${playerName} μπήκε στο παιχνίδι.`);
-               await updateDoc(gameRef, { players: data.players, logs: data.logs.slice(0, 50) });
+               };
+               const newPlayers = [...data.players, newPlayer];
+               const newLogs = [`${newPlayer.name} μπήκε στο παιχνίδι.`, ...(data.logs || [])].slice(0, 50);
+               
+               await updateDoc(gameRef, { players: newPlayers, logs: newLogs });
              }
              setGameId(id);
           } else {
@@ -246,26 +260,40 @@
       };
 
       const startGame = async () => {
-        if (!user || !gameState) return;
+        if (!user || !gameId) return;
         
-        const deck = generateDeck();
-        const newPlayers = [...gameState.players];
-        
-        newPlayers.forEach(p => {
-          p.hand = deck.splice(0, 7);
-          p.pairs = [];
-        });
+        try {
+          // ΠΡΟΣΟΧΗ: Κατεβάζουμε ΦΡΕΣΚΑ δεδομένα κατευθείαν από τη βάση (για να μην χαθεί ο 2ος παίκτης)!
+          const gameRef = getGameRef(gameId);
+          const docSnap = await getDoc(gameRef);
+          
+          if (!docSnap.exists()) return;
+          const currentData = docSnap.data();
 
-        const gameRef = getGameRef(gameId);
-        await updateDoc(gameRef, {
-          status: 'playing',
-          deck: deck,
-          players: newPlayers,
-          turn: 0,
-          turnPhase: 'draw',
-          hasPlayedPairThisTurn: false,
-          logs: ['Το παιχνίδι ξεκίνησε! Μοιράστηκαν 7 κάρτες.']
-        });
+          const deck = generateDeck();
+          
+          // Μοιράζουμε τις κάρτες στους παίκτες που υπάρχουν πραγματικά στη βάση
+          const newPlayers = currentData.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            isHost: p.isHost,
+            hand: deck.splice(0, 7),
+            pairs: []
+          }));
+
+          await updateDoc(gameRef, {
+            status: 'playing',
+            deck: deck,
+            players: newPlayers,
+            turn: 0,
+            turnPhase: 'draw',
+            hasPlayedPairThisTurn: false,
+            logs: ['Το παιχνίδι ξεκίνησε! Μοιράστηκαν 7 κάρτες.', ...(currentData.logs || [])].slice(0, 50)
+          });
+        } catch (err) {
+          console.error("Start Game Error:", err);
+          alert("Υπήρξε σφάλμα κατά την εκκίνηση του παιχνιδιού.");
+        }
       };
 
       const updateGameState = async (updates) => {
@@ -277,7 +305,7 @@
         if (gameState.turnPhase !== 'draw') return;
         let deck = [...gameState.deck];
         let discard = [...gameState.discardPile];
-        let players = [...gameState.players];
+        let players = clonePlayers(gameState.players);
         let logs = [...gameState.logs];
         
         const pIdx = gameState.turn;
@@ -315,7 +343,7 @@
           return;
         }
 
-        let players = [...gameState.players];
+        let players = clonePlayers(gameState.players);
         let logs = [...gameState.logs];
         const pIdx = gameState.turn;
         const player = players[pIdx];
@@ -348,7 +376,7 @@
       const playSpecialCard = (card) => {
         let deck = [...gameState.deck];
         let discard = [...gameState.discardPile];
-        let players = [...gameState.players];
+        let players = clonePlayers(gameState.players);
         let logs = [...gameState.logs];
         let turn = gameState.turn;
         
@@ -420,7 +448,7 @@
       };
 
       const discardCard = (cardId) => {
-        let players = [...gameState.players];
+        let players = clonePlayers(gameState.players);
         let discard = [...gameState.discardPile];
         const player = players[gameState.turn];
 
@@ -545,7 +573,6 @@
       }
 
       if (gameState.status === 'lobby') {
-        // Η διόρθωση: Χρησιμοποιούμε το flag isHost που αποθηκεύσαμε κατά τη δημιουργία/είσοδο.
         const currentPlayer = gameState.players?.find(p => p.id === user?.uid);
         const isHost = currentPlayer ? currentPlayer.isHost : false;
         
@@ -597,7 +624,7 @@
         );
       }
 
-      // Δικλείδα ασφαλείας: Αν το παιχνίδι ξεκινήσει αλλά ο παίκτης δεν βρεθεί για οποιονδήποτε λόγο
+      // Δικλείδα ασφαλείας: Αν το παιχνίδι ξεκινήσει αλλά ο παίκτης δεν βρεθεί
       const myPlayerIndex = gameState.players.findIndex(p => p.id === user.uid);
       if (myPlayerIndex === -1) {
          return (
